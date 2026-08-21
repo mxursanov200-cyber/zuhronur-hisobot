@@ -1,0 +1,8 @@
+dist/
+netlify-dist/
+.netlify/
+.openai/
+node_modules/
+.env
+.env.*
+site.tar.gz
