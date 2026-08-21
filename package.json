@@ -1,0 +1,11 @@
+{
+  "name": "zuhronur-hisobot-test",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bash scripts/build.sh",
+    "build:netlify": "node scripts/build-netlify.mjs",
+    "validate": "node scripts/validate-artifact.mjs"
+  },
+  "displayName": "Zuhronur Hisobot Test"
+}
