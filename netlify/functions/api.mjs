@@ -46,10 +46,96 @@ async function proxyJson(response) {
   });
 }
 
-async function listEmployees(request, profile) {
+async function listEmployees(request, profile, url) {
   if (profile.role !== "manager") return json({ error: "Ruxsat yo‘q" }, 403);
-  const url = `${SB_URL}/rest/v1/profiles?department=eq.external&role=eq.employee&select=user_id,full_name,created_at&order=full_name.asc`;
-  return proxyJson(await fetch(url, { headers: authHeaders(request) }));
+  const department = url.searchParams.get("department");
+  if (!["external", "laser", "print"].includes(department)) return json({ error: "Bo‘lim noto‘g‘ri" }, 400);
+  const endpoint = `${SB_URL}/rest/v1/profiles?department=eq.${department}&role=eq.employee&select=user_id,full_name,created_at&order=full_name.asc`;
+  return proxyJson(await fetch(endpoint, { headers: authHeaders(request) }));
+}
+
+async function listPayments(request, profile, url) {
+  const selectedOwner = url.searchParams.get("owner_id");
+  const params = new URLSearchParams({
+    select: "id,employee_id,employee_name,module,week_start,week_end,total_sqm,amount,paid_at,paid_by,created_at",
+    order: "week_start.desc",
+  });
+  if (profile.role === "manager" && selectedOwner) {
+    params.set("employee_id", `eq.${selectedOwner}`);
+  } else if (profile.role !== "manager") {
+    params.set("employee_id", `eq.${profile.user_id}`);
+  }
+  const response = await fetch(`${SB_URL}/rest/v1/weekly_payments?${params}`, {
+    headers: authHeaders(request),
+  });
+  return proxyJson(response);
+}
+
+function mondayOf(dateValue = new Date()) {
+  const date = new Date(dateValue);
+  const day = (date.getUTCDay() + 6) % 7;
+  date.setUTCDate(date.getUTCDate() - day);
+  return date.toISOString().slice(0, 10);
+}
+
+async function createPayment(request, profile) {
+  if (profile.role !== "manager") return json({ error: "Ruxsat yo‘q" }, 403);
+  let payload;
+  try { payload = await request.json(); } catch { return json({ error: "Noto‘g‘ri ma’lumot" }, 400); }
+  const employeeId = String(payload.employee_id || "");
+  const module = String(payload.module || "");
+  const amount = Number(payload.amount);
+  const weekStart = String(payload.week_start || mondayOf());
+  if (!employeeId || !["external", "laser", "print"].includes(module) || !(amount > 0) || !/^\d{4}-\d{2}-\d{2}$/.test(weekStart)) {
+    return json({ error: "To‘lov ma’lumoti to‘liq emas" }, 400);
+  }
+  const weekEndDate = new Date(`${weekStart}T12:00:00Z`);
+  weekEndDate.setUTCDate(weekEndDate.getUTCDate() + 6);
+  const weekEnd = weekEndDate.toISOString().slice(0, 10);
+  const profileParams = new URLSearchParams({
+    user_id: `eq.${employeeId}`,
+    department: `eq.${module}`,
+    role: "eq.employee",
+    select: "user_id,full_name",
+  });
+  const employeeResponse = await fetch(`${SB_URL}/rest/v1/profiles?${profileParams}`, { headers: authHeaders(request) });
+  if (!employeeResponse.ok) return proxyJson(employeeResponse);
+  const employeeRows = await employeeResponse.json();
+  if (!employeeRows.length) return json({ error: "Xodim topilmadi" }, 404);
+
+  const cutsParams = new URLSearchParams({
+    owner_id: `eq.${employeeId}`,
+    module: `eq.${module}`,
+    date: `gte.${weekStart}`,
+    select: "width,height,qty,category,material",
+  });
+  cutsParams.append("date", `lte.${weekEnd}`);
+  const cutsResponse = await fetch(`${SB_URL}/rest/v1/secure_cuts?${cutsParams}`, { headers: authHeaders(request) });
+  if (!cutsResponse.ok) return proxyJson(cutsResponse);
+  const cutRows = await cutsResponse.json();
+  const unitMaterials = new Set(["Bukva", "Laytboks", "Stella", "Futbolka", "Kepka"]);
+  const totalSqm = cutRows.reduce((sum, row) => {
+    if (unitMaterials.has(row.material) || String(row.category).includes("unit")) return sum;
+    return sum + ((Number(row.width) || 0) * (Number(row.height) || 0) * (Number(row.qty) || 0) / 10000);
+  }, 0);
+  const record = {
+    employee_id: employeeId,
+    employee_name: employeeRows[0].full_name,
+    module,
+    week_start: weekStart,
+    week_end: weekEnd,
+    total_sqm: Math.round(totalSqm * 100) / 100,
+    amount: Math.round(amount * 100) / 100,
+    paid_at: new Date().toISOString(),
+    paid_by: profile.user_id,
+  };
+  const params = new URLSearchParams({ on_conflict: "employee_id,module,week_start" });
+  const response = await fetch(`${SB_URL}/rest/v1/weekly_payments?${params}`, {
+    method: "POST",
+    headers: authHeaders(request, { prefer: "resolution=merge-duplicates,return=representation" }),
+    body: JSON.stringify(record),
+  });
+  return proxyJson(response);
 }
 
 async function listCuts(request, profile, url) {
@@ -135,7 +221,12 @@ export default async function handler(request) {
   const profile = await getIdentity(request);
   if (!profile) return json({ error: "Kirish talab qilinadi" }, 401);
   if (route === "me") return json(profile);
-  if (route === "employees") return listEmployees(request, profile);
+  if (route === "employees") return listEmployees(request, profile, url);
+  if (route === "payments") {
+    if (request.method === "GET") return listPayments(request, profile, url);
+    if (request.method === "POST") return createPayment(request, profile);
+    return json({ error: "Method" }, 405);
+  }
   if (route !== "cuts") return json({ error: "Topilmadi" }, 404);
   if (request.method === "GET") return listCuts(request, profile, url);
   if (request.method === "POST") return createCuts(request, profile);
