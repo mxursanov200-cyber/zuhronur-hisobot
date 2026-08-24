@@ -140,11 +140,33 @@ async function createPayment(request, profile) {
 
 async function listCuts(request, profile, url) {
   const selectedOwner = url.searchParams.get("owner_id");
+  const selectedModule = url.searchParams.get("module");
   const params = new URLSearchParams({
     select: "id,owner_id,owner_name,module,dealer,note,material,category,width,height,qty,date,created_at",
     order: "created_at.desc",
   });
-  if (profile.role === "manager" && selectedOwner) params.set("owner_id", `eq.${selectedOwner}`);
+  if (profile.role === "manager" && selectedOwner) {
+    if (!["external", "laser", "print"].includes(selectedModule)) {
+      return json({ error: "Bo‘lim noto‘g‘ri" }, 400);
+    }
+    const employeeParams = new URLSearchParams({
+      user_id: `eq.${selectedOwner}`,
+      department: `eq.${selectedModule}`,
+      role: "eq.employee",
+      select: "user_id",
+    });
+    const employeeResponse = await fetch(`${SB_URL}/rest/v1/profiles?${employeeParams}`, {
+      headers: authHeaders(request),
+    });
+    if (!employeeResponse.ok) return proxyJson(employeeResponse);
+    const employeeRows = await employeeResponse.json();
+    if (!employeeRows.length) return json({ error: "Xodim ushbu bo‘limda topilmadi" }, 404);
+    params.set("owner_id", `eq.${selectedOwner}`);
+    params.set("module", `eq.${selectedModule}`);
+  } else if (profile.role !== "manager") {
+    params.set("owner_id", `eq.${profile.user_id}`);
+    params.set("module", `eq.${profile.department}`);
+  }
   const response = await fetch(`${SB_URL}/rest/v1/secure_cuts?${params}`, {
     headers: authHeaders(request),
   });
