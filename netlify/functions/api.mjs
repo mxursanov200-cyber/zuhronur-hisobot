@@ -164,8 +164,11 @@ async function listCuts(request, profile, url) {
     params.set("owner_id", `eq.${selectedOwner}`);
     params.set("module", `eq.${selectedModule}`);
   } else if (profile.role !== "manager") {
-    params.set("owner_id", `eq.${profile.user_id}`);
-    params.set("module", `eq.${profile.department}`);
+    const allowedModule = profile.department === "external" && selectedModule === "laser"
+      ? "laser"
+      : profile.department;
+    params.set("module", `eq.${allowedModule}`);
+    if (allowedModule !== "laser") params.set("owner_id", `eq.${profile.user_id}`);
   }
   const response = await fetch(`${SB_URL}/rest/v1/secure_cuts?${params}`, {
     headers: authHeaders(request),
@@ -186,7 +189,12 @@ async function createCuts(request, profile) {
   const rawItems = Array.isArray(payload.items) ? payload.items : [];
   const now = new Date().toISOString();
   const rows = rawItems.flatMap((item) => {
-    const module = profile.role === "manager" ? String(item.module || "laser") : profile.department;
+    const requestedModule = String(item.module || profile.department);
+    const module = profile.role === "manager"
+      ? requestedModule
+      : profile.department === "external" && ["external", "laser"].includes(requestedModule)
+        ? requestedModule
+        : profile.department;
     const dealer = String(item.dealer || "").trim();
     const note = String(item.note || "").trim();
     const qty = Number(item.qty);
