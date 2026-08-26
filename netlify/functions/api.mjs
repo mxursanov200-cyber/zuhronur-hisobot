@@ -146,7 +146,7 @@ async function listCuts(request, profile, url) {
     order: "created_at.desc",
   });
   if (profile.role === "manager" && selectedOwner) {
-    if (!["external", "laser", "print"].includes(selectedModule)) {
+    if (!["external", "laser", "print", "pechat"].includes(selectedModule)) {
       return json({ error: "Bo‘lim noto‘g‘ri" }, 400);
     }
     const employeeParams = new URLSearchParams({
@@ -164,11 +164,11 @@ async function listCuts(request, profile, url) {
     params.set("owner_id", `eq.${selectedOwner}`);
     params.set("module", `eq.${selectedModule}`);
   } else if (profile.role !== "manager") {
-    const allowedModule = profile.department === "external" && selectedModule === "laser"
-      ? "laser"
+    const allowedModule = profile.department === "external" && ["laser", "pechat"].includes(selectedModule)
+      ? selectedModule
       : profile.department;
     params.set("module", `eq.${allowedModule}`);
-    if (allowedModule !== "laser") params.set("owner_id", `eq.${profile.user_id}`);
+    if (!["laser", "pechat"].includes(allowedModule)) params.set("owner_id", `eq.${profile.user_id}`);
   }
   const response = await fetch(`${SB_URL}/rest/v1/secure_cuts?${params}`, {
     headers: authHeaders(request),
@@ -192,13 +192,13 @@ async function createCuts(request, profile) {
     const requestedModule = String(item.module || profile.department);
     const module = profile.role === "manager"
       ? requestedModule
-      : profile.department === "external" && ["external", "laser"].includes(requestedModule)
+      : profile.department === "external" && ["external", "laser", "pechat"].includes(requestedModule)
         ? requestedModule
         : profile.department;
     const dealer = String(item.dealer || "").trim();
     const note = String(item.note || "").trim();
     const qty = Number(item.qty);
-    if (!['external', 'laser', 'print'].includes(module) || !(dealer || note) || !item.material || !(qty > 0)) return [];
+    if (!['external', 'laser', 'print', 'pechat'].includes(module) || !(dealer || note) || !item.material || !(qty > 0)) return [];
     return [{
       id: `${Date.now()}-${crypto.randomUUID()}`,
       owner_id: profile.user_id,
