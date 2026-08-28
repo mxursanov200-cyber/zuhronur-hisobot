@@ -188,6 +188,12 @@ async function createCuts(request, profile) {
   try { payload = await request.json(); } catch { return json({ error: "Noto‘g‘ri ma’lumot" }, 400); }
   const rawItems = Array.isArray(payload.items) ? payload.items : [];
   const now = new Date().toISOString();
+  const designToPechat = new Map([
+    ["Banner", "Banner"], ["Orakal", "Orakal"], ["Setka", "Setka"],
+    ["Prozrachniy orakal", "Prozrachnyy orakal"], ["Prozrachnyy orakal", "Prozrachnyy orakal"],
+    ["Bayroq", "Bayroq"], ["Magnit", "Magnit"], ["Pauk", "Beklint"],
+    ["Roll-up", "Beklint"], ["Rol up", "Beklint"],
+  ]);
   const rows = rawItems.flatMap((item) => {
     const requestedModule = String(item.module || profile.department);
     const module = profile.role === "manager"
@@ -199,7 +205,7 @@ async function createCuts(request, profile) {
     const note = String(item.note || "").trim();
     const qty = Number(item.qty);
     if (!['external', 'laser', 'print', 'pechat'].includes(module) || !(dealer || note) || !item.material || !(qty > 0)) return [];
-    return [{
+    const sourceRow = {
       id: `${Date.now()}-${crypto.randomUUID()}`,
       owner_id: profile.user_id,
       owner_name: profile.full_name,
@@ -214,7 +220,13 @@ async function createCuts(request, profile) {
       qty: Math.trunc(qty),
       date: item.date || now.slice(0, 10),
       created_at: now,
-    }];
+    };
+    const result = [sourceRow];
+    const pechatMaterial = module === "external" ? designToPechat.get(sourceRow.material) : null;
+    if (pechatMaterial && sourceRow.width > 0 && sourceRow.height > 0) {
+      result.push({ ...sourceRow, id: `${Date.now()}-${crypto.randomUUID()}`, module: "pechat", material: pechatMaterial, category: "design-sync" });
+    }
+    return result;
   });
   if (!rows.length) return json({ error: "Ma’lumot yo‘q" }, 400);
   const response = await fetch(`${SB_URL}/rest/v1/secure_cuts`, {
