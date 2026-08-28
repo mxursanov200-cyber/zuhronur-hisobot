@@ -223,13 +223,26 @@ async function createCuts(request, profile) {
       date: item.date || now.slice(0, 10),
       created_at: now,
     };
-    const result = [sourceRow];
     const pechatMaterial = module === "external" ? designToPechat.get(sourceRow.material) : null;
+    if (module === "external" && sourceRow.material === "Banner" && sourceRow.width > 0 && sourceRow.height > 0) {
+      sourceRow.width += 9;
+    }
+    if (pechatMaterial) sourceRow.note = `design-source:${sourceRow.id}`;
+    const result = [sourceRow];
     if (pechatMaterial && sourceRow.width > 0 && sourceRow.height > 0) {
       const pechatQty = Number.isFinite(requestedPechatQty) && requestedPechatQty > 0
         ? Math.trunc(requestedPechatQty)
         : sourceRow.qty;
-      result.push({ ...sourceRow, id: `${Date.now()}-${crypto.randomUUID()}`, module: "pechat", material: pechatMaterial, category: "design-sync", qty: pechatQty });
+      result.push({
+        ...sourceRow,
+        id: `${Date.now()}-${crypto.randomUUID()}`,
+        module: "pechat",
+        material: pechatMaterial,
+        category: "design-sync",
+        qty: pechatQty,
+        height: sourceRow.height + (sourceRow.material === "Banner" ? 9 : 0),
+        note: `design-sync:${sourceRow.id}`,
+      });
     }
     return result;
   });
@@ -255,7 +268,7 @@ async function deleteCuts(request, profile) {
   const params = new URLSearchParams({ id: `in.(${encodedIds})` });
   if (profile.role !== "manager") params.set("owner_id", `eq.${profile.user_id}`);
   const lookup = new URLSearchParams(params);
-  lookup.set("select", "id,owner_id,module,dealer,material,category,width,height,qty,date,created_at");
+  lookup.set("select", "id,owner_id,module,dealer,note,material,category,width,height,qty,date,created_at");
   const lookupResponse = await fetch(`${SB_URL}/rest/v1/secure_cuts?${lookup}`, {
     headers: authHeaders(request),
   });
@@ -269,17 +282,27 @@ async function deleteCuts(request, profile) {
       ? designToPechat.get(row.material)
       : null;
     if (!pechatMaterial) continue;
-    const linked = new URLSearchParams({
-      owner_id: `eq.${row.owner_id}`,
-      module: "eq.pechat",
-      category: "eq.design-sync",
-      created_at: `eq.${row.created_at}`,
-      dealer: `eq.${row.dealer}`,
-      material: `eq.${pechatMaterial}`,
-      date: `eq.${row.date}`,
-      width: `eq.${row.width}`,
-      height: `eq.${row.height}`,
-    });
+    const sourceMarker = String(row.note || "").startsWith("design-source:")
+      ? String(row.note).slice("design-source:".length)
+      : "";
+    const linked = sourceMarker
+      ? new URLSearchParams({
+          owner_id: `eq.${row.owner_id}`,
+          module: "eq.pechat",
+          category: "eq.design-sync",
+          note: `eq.design-sync:${sourceMarker}`,
+        })
+      : new URLSearchParams({
+          owner_id: `eq.${row.owner_id}`,
+          module: "eq.pechat",
+          category: "eq.design-sync",
+          created_at: `eq.${row.created_at}`,
+          dealer: `eq.${row.dealer}`,
+          material: `eq.${pechatMaterial}`,
+          date: `eq.${row.date}`,
+          width: `eq.${row.width}`,
+          height: row.material === "Banner" ? `in.(${row.height},${Number(row.height) + 9})` : `eq.${row.height}`,
+        });
     const linkedResponse = await fetch(`${SB_URL}/rest/v1/secure_cuts?${linked}`, {
       method: "DELETE",
       headers: authHeaders(request, { prefer: "return=minimal" }),
