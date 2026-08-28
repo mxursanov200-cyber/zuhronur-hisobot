@@ -238,6 +238,7 @@ async function createCuts(request, profile) {
         category: "design-sync",
         qty: pechatQty,
         width: sourceRow.width + (sourceRow.material === "Banner" ? 9 : 0),
+        height: sourceRow.height + (sourceRow.material === "Banner" ? 9 : 0),
         note: `design-sync:${sourceRow.id}`,
       });
     }
