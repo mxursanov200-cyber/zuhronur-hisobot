@@ -224,9 +224,6 @@ async function createCuts(request, profile) {
       created_at: now,
     };
     const pechatMaterial = module === "external" ? designToPechat.get(sourceRow.material) : null;
-    if (module === "external" && sourceRow.material === "Banner" && sourceRow.width > 0 && sourceRow.height > 0) {
-      sourceRow.width += 9;
-    }
     if (pechatMaterial) sourceRow.note = `design-source:${sourceRow.id}`;
     const result = [sourceRow];
     if (pechatMaterial && sourceRow.width > 0 && sourceRow.height > 0) {
@@ -240,7 +237,7 @@ async function createCuts(request, profile) {
         material: pechatMaterial,
         category: "design-sync",
         qty: pechatQty,
-        height: sourceRow.height + (sourceRow.material === "Banner" ? 9 : 0),
+        width: sourceRow.width + (sourceRow.material === "Banner" ? 9 : 0),
         note: `design-sync:${sourceRow.id}`,
       });
     }
