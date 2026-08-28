@@ -183,17 +183,18 @@ async function listCuts(request, profile, url) {
   })));
 }
 
+const designToPechat = new Map([
+  ["Banner", "Banner"], ["Orakal", "Orakal"], ["Setka", "Setka"],
+  ["Prozrachniy orakal", "Prozrachnyy orakal"], ["Prozrachnyy orakal", "Prozrachnyy orakal"],
+  ["Bayroq", "Bayroq"], ["Magnit", "Magnit"], ["Pauk", "Beklint"],
+  ["Roll-up", "Beklint"], ["Rol up", "Beklint"],
+]);
+
 async function createCuts(request, profile) {
   let payload;
   try { payload = await request.json(); } catch { return json({ error: "Noto‘g‘ri ma’lumot" }, 400); }
   const rawItems = Array.isArray(payload.items) ? payload.items : [];
   const now = new Date().toISOString();
-  const designToPechat = new Map([
-    ["Banner", "Banner"], ["Orakal", "Orakal"], ["Setka", "Setka"],
-    ["Prozrachniy orakal", "Prozrachnyy orakal"], ["Prozrachnyy orakal", "Prozrachnyy orakal"],
-    ["Bayroq", "Bayroq"], ["Magnit", "Magnit"], ["Pauk", "Beklint"],
-    ["Roll-up", "Beklint"], ["Rol up", "Beklint"],
-  ]);
   const rows = rawItems.flatMap((item) => {
     const requestedModule = String(item.module || profile.department);
     const module = profile.role === "manager"
@@ -249,6 +250,36 @@ async function deleteCuts(request, profile) {
   const encodedIds = ids.map((id) => `"${id.replaceAll('"', '')}"`).join(",");
   const params = new URLSearchParams({ id: `in.(${encodedIds})` });
   if (profile.role !== "manager") params.set("owner_id", `eq.${profile.user_id}`);
+  const lookup = new URLSearchParams(params);
+  lookup.set("select", "id,owner_id,module,dealer,material,category,width,height,qty,date,created_at");
+  const lookupResponse = await fetch(`${SB_URL}/rest/v1/secure_cuts?${lookup}`, {
+    headers: authHeaders(request),
+  });
+  if (!lookupResponse.ok) return proxyJson(lookupResponse);
+  const sourceRows = await lookupResponse.json();
+  for (const row of sourceRows) {
+    const pechatMaterial = row.module === "external" && row.category !== "design-sync"
+      ? designToPechat.get(row.material)
+      : null;
+    if (!pechatMaterial) continue;
+    const linked = new URLSearchParams({
+      owner_id: `eq.${row.owner_id}`,
+      module: "eq.pechat",
+      category: "eq.design-sync",
+      created_at: `eq.${row.created_at}`,
+      dealer: `eq.${row.dealer}`,
+      material: `eq.${pechatMaterial}`,
+      date: `eq.${row.date}`,
+      width: `eq.${row.width}`,
+      height: `eq.${row.height}`,
+      qty: `eq.${row.qty}`,
+    });
+    const linkedResponse = await fetch(`${SB_URL}/rest/v1/secure_cuts?${linked}`, {
+      method: "DELETE",
+      headers: authHeaders(request, { prefer: "return=minimal" }),
+    });
+    if (!linkedResponse.ok) return proxyJson(linkedResponse);
+  }
   const response = await fetch(`${SB_URL}/rest/v1/secure_cuts?${params}`, {
     method: "DELETE",
     headers: authHeaders(request, { prefer: "return=minimal" }),
