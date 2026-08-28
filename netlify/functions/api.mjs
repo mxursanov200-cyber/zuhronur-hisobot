@@ -205,6 +205,7 @@ async function createCuts(request, profile) {
     const dealer = String(item.dealer || "").trim();
     const note = String(item.note || "").trim();
     const qty = Number(item.qty);
+    const requestedPechatQty = Number(item.pechatQty);
     if (!['external', 'laser', 'print', 'pechat'].includes(module) || !(dealer || note) || !item.material || !(qty > 0)) return [];
     const sourceRow = {
       id: `${Date.now()}-${crypto.randomUUID()}`,
@@ -225,7 +226,10 @@ async function createCuts(request, profile) {
     const result = [sourceRow];
     const pechatMaterial = module === "external" ? designToPechat.get(sourceRow.material) : null;
     if (pechatMaterial && sourceRow.width > 0 && sourceRow.height > 0) {
-      result.push({ ...sourceRow, id: `${Date.now()}-${crypto.randomUUID()}`, module: "pechat", material: pechatMaterial, category: "design-sync" });
+      const pechatQty = Number.isFinite(requestedPechatQty) && requestedPechatQty > 0
+        ? Math.trunc(requestedPechatQty)
+        : sourceRow.qty;
+      result.push({ ...sourceRow, id: `${Date.now()}-${crypto.randomUUID()}`, module: "pechat", material: pechatMaterial, category: "design-sync", qty: pechatQty });
     }
     return result;
   });
@@ -257,6 +261,9 @@ async function deleteCuts(request, profile) {
   });
   if (!lookupResponse.ok) return proxyJson(lookupResponse);
   const sourceRows = await lookupResponse.json();
+  if (sourceRows.some((row) => row.module === "pechat")) {
+    return json({ error: "Pechat ma’lumotlarini Pechat bo‘limidan o‘chirib bo‘lmaydi" }, 403);
+  }
   for (const row of sourceRows) {
     const pechatMaterial = row.module === "external" && row.category !== "design-sync"
       ? designToPechat.get(row.material)
@@ -272,7 +279,6 @@ async function deleteCuts(request, profile) {
       date: `eq.${row.date}`,
       width: `eq.${row.width}`,
       height: `eq.${row.height}`,
-      qty: `eq.${row.qty}`,
     });
     const linkedResponse = await fetch(`${SB_URL}/rest/v1/secure_cuts?${linked}`, {
       method: "DELETE",
